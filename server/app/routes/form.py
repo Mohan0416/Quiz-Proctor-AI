@@ -1,10 +1,9 @@
-# routes/form.py
 from flask import Blueprint, request, session, jsonify
 import requests
 
-form_bp = Blueprint("form", __name__)
+bp = Blueprint("form", __name__)  # <-- renamed from form_bp to bp
 
-@form_bp.route("/api/create-form", methods=["POST"])
+@bp.route("/api/create-form", methods=["POST"])
 def create_form():
     token = session.get("token")
     if not token:

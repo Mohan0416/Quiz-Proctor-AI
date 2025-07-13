@@ -6,5 +6,5 @@ You are a helpful teaching assistant. Based ONLY on the text below, generate {nu
 
 Only use this content below:
 
-{text}
+{pdf_text}
 """

@@ -2,7 +2,12 @@ from flask import Blueprint, redirect, request, session
 from requests_oauthlib import OAuth2Session
 import os
 
-auth_bp = Blueprint("auth", __name__)
+bp = Blueprint('auth', __name__)
+
+@bp.route("/auth/health")
+def auth_health():
+    return {"status": "Auth route OK"}
+
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -15,7 +20,7 @@ SCOPES = [
     "openid"
 ]
 
-@auth_bp.route("/api/auth/login")
+@bp.route("/api/auth/login")
 def login():
     google = OAuth2Session(GOOGLE_CLIENT_ID, scope=SCOPES, redirect_uri=REDIRECT_URI)
     auth_url, state = google.authorization_url(
@@ -26,7 +31,7 @@ def login():
     return redirect(auth_url)
 
 
-@auth_bp.route("/api/auth/callback")
+@bp.route("/api/auth/callback")
 def callback():
     google = OAuth2Session(GOOGLE_CLIENT_ID, state=session["oauth_state"], redirect_uri=REDIRECT_URI)
     token = google.fetch_token(

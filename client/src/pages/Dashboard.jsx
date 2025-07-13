@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FileUploader } from '../components/FileUploader';
 import { QuizSettings } from '../components/QuizSettings';
-import { GenerateButton } from '../components/GenerateButton';
+import  {GenerateButton}  from '../components/GenerateButton';
 import { ToastWrapper } from '../components/Toast';
 
 export default function Dashboard() {

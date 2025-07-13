@@ -2,10 +2,10 @@ from flask import Blueprint, request, jsonify
 import uuid
 import os
 
-link_bp = Blueprint("link", __name__)
+bp = Blueprint("link", __name__)
 FRONTEND_URL = os.getenv("FRONTEND_BASE_URL")
 
-@link_bp.route("/api/get-proctor-link", methods=["POST"])
+@bp.route("/api/get-proctor-link", methods=["POST"])
 def get_link():
     form_url = request.json.get("form_url")
     token = str(uuid.uuid4())

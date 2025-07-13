@@ -4,12 +4,12 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 
-mail_bp = Blueprint("mail", __name__)
+bp = Blueprint("mail", __name__)
 
 SMTP_EMAIL = os.getenv("SMTP_EMAIL")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
-@mail_bp.route("/api/send-result", methods=["POST"])
+@bp.route("/api/send-result", methods=["POST"])
 def send_result():
     try:
         data = request.json
