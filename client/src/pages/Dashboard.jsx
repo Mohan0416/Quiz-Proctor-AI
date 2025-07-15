@@ -1,28 +1,44 @@
-import { useState } from 'react';
-import { FileUploader } from '../components/FileUploader';
-import { QuizSettings } from '../components/QuizSettings';
-import  {GenerateButton}  from '../components/GenerateButton';
-import { ToastWrapper } from '../components/Toast';
+import { useEffect, useState } from "react";
+import { FileUploader } from "../components/FileUploader";
+import { QuizSettings } from "../components/QuizSettings";
+import { GenerateButton } from "../components/GenerateButton";
+import { getUser } from "../services/api";
 
 export default function Dashboard() {
-  const [fileData, setFileData] = useState(null);
-  const [settings, setSettings] = useState({
-    numberOfQuestions: '',
-    difficulty: '',
-    topic: ''
-  });
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 font-inter">
-      <div className="max-w-3xl mx-auto mt-12 bg-white/80 backdrop-blur-lg rounded-3xl shadow-2xl p-8 px-10 border border-slate-200">
-        <h1 className="text-4xl font-bold text-center text-slate-800 flex items-center justify-center gap-2 mb-8">
-          📘 <span>AI Quiz Generator</span>
-        </h1>
+  const [file, setFile] = useState(null);
+  const [settings, setSettings] = useState({});
+  const [user, setUser] = useState(null);
 
-        <FileUploader onUpload={setFileData} />
-        <QuizSettings settings={settings} setSettings={setSettings} />
-        <GenerateButton fileData={fileData} settings={settings} />
+  useEffect(() => {
+    getUser().then((res) => setUser(res.user));
+  }, []);
+
+  if (!user) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="bg-white p-8 rounded-lg shadow-md max-w-sm w-full text-center">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Welcome to QuizProctorAI</h2>
+          <p className="text-gray-500 mb-6">Please log in to access your dashboard</p>
+          {/* ✅ direct link to backend /login route */}
+          <a
+            href="http://localhost:5000/api/login"
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-all"
+          >
+            Login with Google
+          </a>
+        </div>
       </div>
-      <ToastWrapper />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-10 px-4 flex flex-col items-center">
+      <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">AI Quiz Generator</h1>
+      <div className="w-full max-w-md space-y-6 bg-white p-6 rounded-lg shadow-md">
+        <FileUploader onFileSelect={setFile} />
+        <QuizSettings onSettingsChange={setSettings} />
+        <GenerateButton fileData={file} settings={settings} />
+      </div>
     </div>
   );
 }

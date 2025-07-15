@@ -1,43 +1,67 @@
-from flask import Blueprint, redirect, request, session
-from requests_oauthlib import OAuth2Session
-import os
+from flask import Blueprint, redirect, session, request, jsonify
+from google_auth_oauthlib.flow import Flow
+import os, pathlib
 
-bp = Blueprint('auth', __name__)
+bp = Blueprint("auth", __name__)
 
-@bp.route("/auth/health")
-def auth_health():
-    return {"status": "Auth route OK"}
-
+# Enable insecure transport for localhost
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
+REDIRECT_URI = "http://localhost:5000/api/callback"
 
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",
-    "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/userinfo.email",
     "openid"
 ]
 
-@bp.route("/api/auth/login")
+CLIENT_SECRETS_FILE = str(pathlib.Path(__file__).parent.parent / "client_secret.json")
+
+@bp.route("/login")
 def login():
-    google = OAuth2Session(GOOGLE_CLIENT_ID, scope=SCOPES, redirect_uri=REDIRECT_URI)
-    auth_url, state = google.authorization_url(
-        "https://accounts.google.com/o/oauth2/auth",
-        access_type="offline", prompt="consent"
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
     )
-    session["oauth_state"] = state
-    return redirect(auth_url)
+    auth_url, _ = flow.authorization_url(
+        prompt='consent',
+        access_type='offline',
+        include_granted_scopes='true'
+    )
+    return redirect(auth_url)  # 🔁 redirect directly to Google login
 
-
-@bp.route("/api/auth/callback")
+@bp.route("/callback")
 def callback():
-    google = OAuth2Session(GOOGLE_CLIENT_ID, state=session["oauth_state"], redirect_uri=REDIRECT_URI)
-    token = google.fetch_token(
-        "https://oauth2.googleapis.com/token",
-        client_secret=GOOGLE_CLIENT_SECRET,
-        authorization_response=request.url,
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=REDIRECT_URI
     )
-    session["token"] = token
-    return redirect("http://localhost:5173/dashboard")
+    flow.fetch_token(authorization_response=request.url)
+
+    credentials = flow.credentials
+    session["token"] = {
+        "access_token": credentials.token,
+        "refresh_token": credentials.refresh_token,
+        "token_uri": credentials.token_uri,
+        "client_id": credentials.client_id,
+        "client_secret": credentials.client_secret,
+        "scopes": credentials.scopes
+    }
+
+    # ✅ redirect to frontend dashboard
+    return redirect("http://localhost:5173")
+
+@bp.route("/logout")
+def logout():
+    session.clear()
+    return jsonify({"message": "Logged out"}), 200
+
+@bp.route("/user")
+def get_user():
+    token = session.get("token")
+    if not token:
+        return jsonify({"user": None}), 200
+    return jsonify({"user": {"email": "authenticated_user"}}), 200

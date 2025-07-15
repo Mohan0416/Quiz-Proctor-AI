@@ -1,6 +1,6 @@
 __pycache__/
 .env
 venv/
-
-
+client_secret.json
+flask_Session/
 

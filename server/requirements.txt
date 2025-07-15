@@ -1,7 +1,7 @@
 Flask
-flask-cors
+Flask-Cors
+Flask-Session
+google-auth
+google-auth-oauthlib
+requests
 python-dotenv
-PyPDF2
-requests
-requests
-requests-oauthlib

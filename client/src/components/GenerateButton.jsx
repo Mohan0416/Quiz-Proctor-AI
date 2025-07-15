@@ -15,30 +15,57 @@ export function GenerateButton({ fileData, settings }) {
       formData.append("file", fileData);
       formData.append("questions", settings.numberOfQuestions);
       formData.append("difficulty", settings.difficulty);
-      if (settings.topic) {
-        formData.append("topic", settings.topic);
-      }
+      if (settings.topic) formData.append("topic", settings.topic);
 
-      const response = await fetch("http://localhost:5000/api/generate", {
+      const generateRes = await fetch("http://localhost:5000/api/generate", {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+      if (!generateRes.ok) throw new Error(`Quiz generation failed: ${generateRes.status}`);
+
+      const { questions } = await generateRes.json();
+
+      let parsedQuestions;
+      try {
+        const bracketIndex = questions.indexOf("[");
+        if (bracketIndex !== -1) {
+          const jsonPart = questions.slice(bracketIndex);
+          parsedQuestions = JSON.parse(jsonPart);
+        } else {
+          throw new Error("JSON array not found.");
+        }
+      } catch (err) {
+        console.error("Invalid JSON format in questions:", err);
+        Toast.error("Invalid quiz format. Try again.");
+        return;
       }
 
-      const result = await response.json();
+      const formRes = await fetch("http://localhost:5000/api/create-form", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: settings.topic || "Generated Quiz",
+          questions: parsedQuestions,
+        }),
+      });
 
-      if (result?.questions) {
-        console.log("Generated questions:", result.questions);
-        Toast.success("✅ Quiz generated successfully!");
-      } else {
-        Toast.error("Failed to generate quiz.");
+      const formdata = await formRes.json();
+
+      if (!formRes.ok || !formdata.formId) {
+        console.error("Google Form API Error:", formdata);
+        Toast.error("❌ Failed to create Google Form.");
+        return;
       }
+
+      const formLink = `https://docs.google.com/forms/d/${formdata.formId}/viewform`;
+      navigator.clipboard.writeText(formLink).catch(() => {});
+      window.open(formLink, "_blank");
+      Toast.success("✅ Google Form created and link copied!");
     } catch (err) {
       console.error("API Error:", err);
-      Toast.error("Error generating quiz.");
+      Toast.error("Something went wrong while generating the quiz.");
     }
   };
 
