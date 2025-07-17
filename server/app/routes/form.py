@@ -1,5 +1,6 @@
 from flask import Blueprint, request, session, jsonify
 import requests
+import json
 
 bp = Blueprint("form", __name__)
 
@@ -12,69 +13,82 @@ def create_form():
     if not token:
         return jsonify({"error": "Not authenticated"}), 403
 
+    access_token = token.get("access_token")
+    if not access_token:
+        return jsonify({"error": "Access token missing"}), 403
+
     data = request.json
     title = data.get("title", "Generated Quiz")
     questions = data.get("questions", [])
 
+    # Step 1: Create Form with title
+    form_payload = {
+        "info": {
+            "title": title,
+            "documentTitle": title
+        }
+    }
+
     headers = {
-        "Authorization": f"Bearer {token['access_token']}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
-    # Step 1: Create the form with just the title
-    form_res = requests.post(
-        "https://forms.googleapis.com/v1/forms",
-        headers=headers,
-        json={"info": {"title": title}}
+    create_form_res = requests.post(
+        "https://forms.googleapis.com/v1/forms", headers=headers, json=form_payload
     )
 
-    if form_res.status_code != 200:
-        print("Form creation error:", form_res.json())
-        return jsonify({"error": "Failed to create form", "details": form_res.json()}), 400
+    if create_form_res.status_code != 200:
+        print("[ERROR] Failed to create form:", create_form_res.text)
+        return jsonify({"error": "Failed to create form", "details": create_form_res.json()}), 400
 
-
-    form_data = form_res.json()
-    form_id = form_data.get("formId")
-
+    form_id = create_form_res.json().get("formId")
     if not form_id:
         return jsonify({"error": "Form ID not returned"}), 400
 
-    # Step 2: Prepare batchUpdate request to add questions
-    requests_payload = []
-    index = 0
+    # Step 2: Add questions using batchUpdate
+    update_payload = {
+        "requests": []
+    }
 
     for q in questions:
-        item = {
+        question_text = q.get("question", "").strip()
+        options = [str(opt).strip() for opt in q.get("options", []) if str(opt).strip()]
+
+        if not question_text or len(options) < 2:
+            print(f"[SKIPPED] Invalid question or options: {q}")
+            continue
+
+        update_payload["requests"].append({
             "createItem": {
                 "item": {
-                    "title": q["question"],
+                    "title": question_text,
                     "questionItem": {
                         "question": {
                             "required": True,
                             "choiceQuestion": {
                                 "type": "RADIO",
-                                "options": [{"value": opt} for opt in q["options"]],
+                                "options": [{"value": opt} for opt in options],
                                 "shuffle": False
                             }
                         }
                     }
                 },
-                "location": {
-                    "index": index
-                }
+                "location": {"index": 0}
             }
-        }
-        requests_payload.append(item)
-        index += 1
+        })
 
-    # Step 3: Call batchUpdate to add questions
-    batch_res = requests.post(
-        f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate",
-        headers=headers,
-        json={"requests": requests_payload}
-    )
+    if not update_payload["requests"]:
+        return jsonify({"error": "No valid questions to add to the form"}), 400
 
-    if batch_res.status_code != 200:
-        return jsonify({"error": "Failed to add questions", "details": batch_res.json()}), 400
+    update_url = f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate"
+    print("[DEBUG] Sending batchUpdate payload:", json.dumps(update_payload, indent=2))
 
-    return jsonify({"formId": form_id})
+    update_res = requests.post(update_url, headers=headers, json=update_payload)
+
+    if update_res.status_code != 200:
+        print("[ERROR] Failed to add questions:", update_res.text)
+        return jsonify({"error": "Failed to add questions", "details": update_res.json()}), 400
+
+    form_link = f"https://docs.google.com/forms/d/{form_id}/viewform"
+    return jsonify({"formLink": form_link}), 200

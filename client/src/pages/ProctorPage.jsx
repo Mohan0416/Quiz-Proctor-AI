@@ -1,14 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
 export default function ProctorPage() {
+  const { quizId } = useParams(); // 👈 get formId from route
   const [email, setEmail] = useState('');
   const [showPrompt, setShowPrompt] = useState(true);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const videoRef = useRef(null);
   const navigate = useNavigate();
 
-  // Detect tab switch
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -19,7 +19,6 @@ export default function ProctorPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // Start webcam feed
   useEffect(() => {
     if (!showPrompt) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: false })
@@ -34,7 +33,6 @@ export default function ProctorPage() {
     }
   }, [showPrompt]);
 
-  // Enter Fullscreen Mode
   const enterFullscreen = () => {
     const el = document.documentElement;
     if (el.requestFullscreen) el.requestFullscreen();
@@ -58,8 +56,6 @@ export default function ProctorPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 relative">
-      
-      {/* 🔐 Email Prompt Modal */}
       {showPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
           <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-lg">
@@ -81,45 +77,37 @@ export default function ProctorPage() {
         </div>
       )}
 
-      {/* 🔚 End Test Button */}
       {!showPrompt && (
-        <button
-          onClick={handleEndTest}
-          className="fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-md shadow hover:bg-red-700 z-40"
-        >
-          End Test
-        </button>
-      )}
-
-      {/* 📷 Webcam Feed */}
-      {!showPrompt && (
-        <div className="absolute top-4 left-4 z-40">
-          <video ref={videoRef} autoPlay muted className="w-32 h-24 rounded-md border shadow-lg" />
-          <p className="text-sm mt-1 text-center text-gray-600">Webcam Active</p>
-        </div>
-      )}
-
-      {/* 🔄 Tab Switch Counter */}
-      {!showPrompt && (
-        <div className="absolute bottom-4 right-4 bg-white px-4 py-2 rounded-md shadow z-40">
-          <p className="text-sm text-gray-700">Tab switches: {tabSwitchCount}</p>
-        </div>
-      )}
-
-      {/* 🧾 Google Form Embed */}
-      {!showPrompt && (
-        <div className="w-full h-[90vh]">
-          <iframe
-            src="https://docs.google.com/forms/d/e/1FAIpQLSdXXXXXXXXXXXXXXXXXXX/viewform?embedded=true"
-            width="100%"
-            height="100%"
-            frameBorder="0"
-            title="Google Form"
-            className="rounded-lg shadow-xl"
+        <>
+          <button
+            onClick={handleEndTest}
+            className="fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-md shadow hover:bg-red-700 z-40"
           >
-            Loading…
-          </iframe>
-        </div>
+            End Test
+          </button>
+
+          <div className="absolute top-4 left-4 z-40">
+            <video ref={videoRef} autoPlay muted className="w-32 h-24 rounded-md border shadow-lg" />
+            <p className="text-sm mt-1 text-center text-gray-600">Webcam Active</p>
+          </div>
+
+          <div className="absolute bottom-4 right-4 bg-white px-4 py-2 rounded-md shadow z-40">
+            <p className="text-sm text-gray-700">Tab switches: {tabSwitchCount}</p>
+          </div>
+
+          <div className="w-full h-[90vh] mt-10">
+            <iframe
+              src={`https://docs.google.com/forms/d/${quizId}/viewform?embedded=true`} // 👈 dynamic formId
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              title="Google Form"
+              className="rounded-lg shadow-xl"
+            >
+              Loading…
+            </iframe>
+          </div>
+        </>
       )}
     </div>
   );

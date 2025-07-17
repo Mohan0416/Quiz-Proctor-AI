@@ -1,7 +1,10 @@
 import { Toast } from './Toast';
 import { FaRocket } from 'react-icons/fa';
+import { useNavigate } from "react-router-dom";
 
 export function GenerateButton({ fileData, settings }) {
+  const navigate = useNavigate();
+
   const handleClick = async () => {
     if (!fileData || !settings.numberOfQuestions || !settings.difficulty) {
       Toast.error("Please complete all fields.");
@@ -27,18 +30,23 @@ export function GenerateButton({ fileData, settings }) {
       const { questions } = await generateRes.json();
 
       let parsedQuestions;
-      try {
-        const bracketIndex = questions.indexOf("[");
-        if (bracketIndex !== -1) {
-          const jsonPart = questions.slice(bracketIndex);
-          parsedQuestions = JSON.parse(jsonPart);
-        } else {
-          throw new Error("JSON array not found.");
+      const match = questions.match(/\[.*\]/s); // match JSON array
+      if (match) {
+        parsedQuestions = JSON.parse(match[0]);
+
+        // ✅ Filter and validate
+        parsedQuestions = parsedQuestions
+          .filter(q => q.question && Array.isArray(q.options) && q.options.length >= 2)
+          .map(q => ({
+            question: q.question,
+            options: q.options.slice(0, 4) // limit to 4
+          }));
+
+        if (parsedQuestions.length === 0) {
+          throw new Error("No valid questions found.");
         }
-      } catch (err) {
-        console.error("Invalid JSON format in questions:", err);
-        Toast.error("Invalid quiz format. Try again.");
-        return;
+      } else {
+        throw new Error("Invalid quiz format: JSON array not found.");
       }
 
       const formRes = await fetch("http://localhost:5000/api/create-form", {
@@ -52,17 +60,14 @@ export function GenerateButton({ fileData, settings }) {
       });
 
       const formdata = await formRes.json();
-
-      if (!formRes.ok || !formdata.formId) {
+      if (!formRes.ok || !formdata.formLink) {
         console.error("Google Form API Error:", formdata);
         Toast.error("❌ Failed to create Google Form.");
         return;
       }
 
-      const formLink = `https://docs.google.com/forms/d/${formdata.formId}/viewform`;
-      navigator.clipboard.writeText(formLink).catch(() => {});
-      window.open(formLink, "_blank");
-      Toast.success("✅ Google Form created and link copied!");
+      Toast.success("✅ Google Form created!");
+      navigate(`/test/${formdata.formLink.split('/')[5]}`);
     } catch (err) {
       console.error("API Error:", err);
       Toast.error("Something went wrong while generating the quiz.");
