@@ -7,12 +7,6 @@ export default function ThankYou() {
       <p className="text-lg text-gray-700 mb-6">
         Your responses have been recorded. Results will be mailed to you soon.
       </p>
-      <Link
-        to="/"
-        className="mt-4 inline-block px-6 py-3 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition"
-      >
-        Back to Dashboard
-      </Link>
     </div>
   );
 }

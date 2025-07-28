@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 export default function ProctorPage() {
@@ -6,33 +6,88 @@ export default function ProctorPage() {
   const [formData, setFormData] = useState({ name: '', email: '', class: '', year: '' });
   const [showPrompt, setShowPrompt] = useState(true);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [mediaPermissions, setMediaPermissions] = useState({ camera: false, microphone: false });
+  const [mediaStream, setMediaStream] = useState(null);
+  const [permissionError, setPermissionError] = useState('');
+  const [cameraMissing, setCameraMissing] = useState(false);
   const videoRef = useRef(null);
   const navigate = useNavigate();
 
+  // Function to request camera/mic permissions (for Try Again button too)
+  const requestMediaPermissions = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: 'user',
+          frameRate: { ideal: 30 }
+        }, 
+        audio: true 
+      });
+      
+      setMediaStream(stream);
+      setMediaPermissions({ camera: true, microphone: true });
+      setPermissionError('');
+      setCameraMissing(false);
+      
+      // Wait a bit for video element to be ready
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play().catch(console.error);
+          };
+        }
+      }, 100);
+      
+    } catch (err) {
+      let errorMessage = '';
+      if (err.name === 'NotAllowedError') {
+        errorMessage = 'Camera and microphone access denied. Please allow permissions and refresh the page.';
+      } else if (err.name === 'NotFoundError') {
+        errorMessage = 'No camera or microphone found. Please connect your devices and refresh the page.';
+        setCameraMissing(true);
+      } else {
+        errorMessage = 'Unable to access camera and microphone. Please check your browser settings.';
+      }
+      setPermissionError(errorMessage);
+      setMediaPermissions({ camera: false, microphone: false });
+      setMediaStream(null);
+    }
+  }, []);
+
+  // On mount, get permissions
+  useEffect(() => {
+    requestMediaPermissions();
+    return () => {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+    };
+    // eslint-disable-next-line
+  }, []);
+
+  // Update video ref when stream changes
+  useEffect(() => {
+    if (mediaStream && videoRef.current) {
+      videoRef.current.srcObject = mediaStream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current.play().catch(console.error);
+      };
+    }
+  }, [mediaStream]);
+
+  // Tab switch counting
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabSwitchCount((count) => count + 1);
-      }
+      if (document.hidden) setTabSwitchCount((count) => count + 1);
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  useEffect(() => {
-    if (!showPrompt) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then((stream) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        })
-        .catch((err) => {
-          console.error("Camera access denied:", err);
-        });
-    }
-  }, [showPrompt]);
-
+  // Fullscreen handler for entering test
   const enterFullscreen = () => {
     const el = document.documentElement;
     if (el.requestFullscreen) el.requestFullscreen();
@@ -40,16 +95,22 @@ export default function ProctorPage() {
     else if (el.msRequestFullscreen) el.msRequestFullscreen();
   };
 
+  // Begin test: check all required, then set state and enter full
   const handleBeginTest = () => {
     const { name, email, class: cls, year } = formData;
     if (!name || !email || !cls || !year) {
       alert("Please fill all fields.");
       return;
     }
+    if (!mediaPermissions.camera || !mediaPermissions.microphone) {
+      alert("Camera and microphone access are required to start the test. Please allow permissions and refresh the page.");
+      return;
+    }
     setShowPrompt(false);
     enterFullscreen();
   };
 
+  // End test (used for submit or camera missing)
   const handleEndTest = async () => {
     try {
       await fetch('http://localhost:5000/api/form/submit-proctor-data', {
@@ -59,73 +120,228 @@ export default function ProctorPage() {
         body: JSON.stringify({ ...formData, tabSwitchCount, quizId }),
       });
     } catch (err) {
-      console.error("Failed to submit proctoring data:", err);
+      // Just log
     }
+    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
     navigate('/thank-you');
   };
 
+  // ======= Camera disconnect/monitor logic =======
+  useEffect(() => {
+    if (!mediaStream) return;
+
+    const videoTracks = mediaStream.getVideoTracks();
+    const onCameraChange = () => {
+      // Camera turned off/disconnected or blocked
+      if (videoTracks.length === 0 || videoTracks[0].readyState !== 'live') {
+        setPermissionError('Camera disconnected or turned off. Please enable your camera to continue the test.');
+        setMediaPermissions(prev => ({ ...prev, camera: false }));
+      } else {
+        setPermissionError('');
+        setMediaPermissions(prev => ({ ...prev, camera: true }));
+      }
+    };
+    // Listen for track ended/mute events
+    videoTracks.forEach(track => {
+      track.addEventListener('ended', onCameraChange);
+      track.addEventListener('mute', onCameraChange);
+      track.addEventListener('unmute', onCameraChange);
+    });
+    return () => {
+      videoTracks.forEach(track => {
+        track.removeEventListener('ended', onCameraChange);
+        track.removeEventListener('mute', onCameraChange);
+        track.removeEventListener('unmute', onCameraChange);
+      });
+    };
+  }, [mediaStream]);
+
+  // If during exam, camera is lost, enforce modal and (optionally) end exam after a timeout
+  useEffect(() => {
+    if (!showPrompt && permissionError) {
+      // Auto-end after 60 seconds of no camera (optional, comment out if not wanted)
+      const timer = setTimeout(() => {
+        handleEndTest();
+      }, 60000);
+      return () => clearTimeout(timer);
+    }
+  }, [permissionError, showPrompt]);
+
+  // ========= UI ==========
+  // Permission modal, always blocks if error.
+  const PermissionErrorModal = (
+    permissionError && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md text-center border border-gray-200">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-3">Camera Required</h2>
+          <p className="text-gray-600 mb-6 leading-relaxed">{permissionError}</p>
+          <div className="space-y-3">
+            <button
+              onClick={requestMediaPermissions}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+            >
+              Try to Reconnect Camera
+            </button>
+            <button
+              onClick={handleEndTest}
+              className="w-full text-red-600 hover:text-red-700 font-medium"
+            >
+              End Test
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4 relative">
+    <div className="min-h-screen bg-gray-50">
+      {PermissionErrorModal}
+
       {showPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-10 max-w-md w-full mx-4 shadow-2xl border border-gray-100 transform transition-all duration-300 scale-100 hover:scale-[1.02]">
-            {/* Header with icon */}
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <h2 className="text-3xl font-bold text-gray-800 mb-2">Start Your Test</h2>
-              <p className="text-gray-600 text-sm">Please provide your details to begin the proctored examination</p>
-            </div>
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full overflow-hidden">
             
-            <div className="space-y-5">
-              {[
-                { field: 'name', label: 'Full Name', icon: '👤' },
-                { field: 'email', label: 'Email Address', icon: '📧' },
-                { field: 'class', label: 'Class/Grade', icon: '🎓' },
-                { field: 'year', label: 'Academic Year', icon: '📅' }
-              ].map(({ field, label, icon }) => (
-                <div key={field} className="relative group">
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                    <span>{icon}</span>
-                    {label}
-                  </label>
-                  <input
-                    type={field === 'email' ? 'email' : 'text'}
-                    placeholder={`Enter your ${label.toLowerCase()}`}
-                    value={formData[field]}
-                    onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-                    className="w-full border-2 border-gray-200 px-4 py-3 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 bg-gray-50 focus:bg-white group-hover:border-gray-300"
-                  />
-                </div>
-              ))}
-              
-              <button
-                onClick={handleBeginTest}
-                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-4 rounded-xl transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-blue-200 mt-6"
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  Begin Proctored Test
-                </span>
-              </button>
-            </div>
-            
-            {/* Security notice */}
-            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <div className="text-amber-600 mt-0.5">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" />
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-sm font-semibold text-amber-800 mb-1">Proctoring Notice</h4>
-                  <p className="text-xs text-amber-700">This test is monitored. Your webcam will be active and tab switches will be tracked.</p>
+                  <h1 className="text-2xl font-bold text-white">Proctored Assessment</h1>
+                  <p className="text-blue-100">Secure examination environment</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8">
+              <div className="grid lg:grid-cols-2 gap-8">
+                
+                {/* Left Column - Form */}
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Student Information</h2>
+                    <p className="text-gray-600">Please provide your details to begin the examination</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {[
+                      { field: 'name', label: 'Full Name', icon: '👤', type: 'text' },
+                      { field: 'email', label: 'Email Address', icon: '📧', type: 'email' },
+                      { field: 'class', label: 'Class/Grade', icon: '🎓', type: 'text' },
+                      { field: 'year', label: 'Academic Year', icon: '📅', type: 'text' }
+                    ].map(({ field, label, icon, type }) => (
+                      <div key={field}>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <span className="flex items-center gap-2">
+                            <span>{icon}</span>
+                            {label}
+                          </span>
+                        </label>
+                        <input
+                          type={type}
+                          placeholder={`Enter your ${label.toLowerCase()}`}
+                          value={formData[field]}
+                          onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                          className="w-full border border-gray-300 px-4 py-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleBeginTest}
+                    disabled={!mediaPermissions.camera || !mediaPermissions.microphone}
+                    className={`w-full py-3 px-6 rounded-lg font-medium transition-all ${
+                      mediaPermissions.camera && mediaPermissions.microphone
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl'
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {mediaPermissions.camera && mediaPermissions.microphone ? 'Begin Proctored Test' : 'Waiting for Permissions'}
+                  </button>
+                </div>
+
+                {/* Right Column - Camera & Status */}
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">System Status</h3>
+                    
+                    {/* Permission Status */}
+                    <div className="space-y-3 mb-6">
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${mediaPermissions.camera ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                          <span className="text-sm font-medium">Camera</span>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          mediaPermissions.camera ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {mediaPermissions.camera ? 'Connected' : 'Disconnected'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${mediaPermissions.microphone ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                          <span className="text-sm font-medium">Microphone</span>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          mediaPermissions.microphone ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {mediaPermissions.microphone ? 'Connected' : 'Disconnected'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Camera Preview */}
+                    <div className="bg-gray-100 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Camera Preview</h4>
+                      {mediaPermissions.camera && mediaStream ? (
+                        <div className="relative">
+                          <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline
+                            muted 
+                            className="w-full h-48 bg-black rounded-lg object-cover"
+                            style={{ transform: 'scaleX(-1)' }}
+                          />
+                          <div className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center">
+                          <div className="text-center">
+                            <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <p className="text-sm text-gray-500">Camera not available</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Security Notice */}
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                      <div className="flex gap-3">
+                        <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+                        </svg>
+                        <div>
+                          <h4 className="text-sm font-semibold text-amber-800">Proctoring Notice</h4>
+                          <p className="text-sm text-amber-700 mt-1">This test is monitored. Your webcam and microphone will be active throughout the examination.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -134,80 +350,88 @@ export default function ProctorPage() {
       )}
 
       {!showPrompt && (
-        <>
-          {/* Enhanced End Test Button */}
-          <button
-            onClick={handleEndTest}
-            className="fixed top-6 right-6 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 z-50 flex items-center gap-2 font-semibold group"
-          >
-            <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            End Test
-          </button>
+        <div className="min-h-screen bg-white">
+          {/* Top Navigation Bar */}
+          <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-gray-900">Proctored Assessment</h1>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span>Session Active</span>
+              </div>
+              <button
+                onClick={handleEndTest}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                End Test
+              </button>
+            </div>
+          </div>
 
-          {/* Enhanced Webcam Display */}
-          <div className="fixed top-6 left-6 z-50 group">
-            <div className="bg-white rounded-2xl p-3 shadow-xl border border-gray-200 hover:shadow-2xl transition-all duration-300">
+          {/* Floating Camera */}
+          <div className="fixed top-24 left-6 z-20">
+            <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-3">
               <div className="relative">
                 <video 
                   ref={videoRef} 
                   autoPlay 
+                  playsInline
                   muted 
-                  className="w-40 h-32 rounded-xl border-2 border-gray-100 object-cover" 
+                  className="w-48 h-32 bg-black rounded-lg object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
                 />
-                <div className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 rounded-full animate-pulse shadow-lg"></div>
+                <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
               </div>
-              <div className="mt-3 flex items-center justify-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <p className="text-xs font-semibold text-gray-700">Camera Active</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Enhanced Tab Switch Counter */}
-          <div className="fixed bottom-6 right-6 bg-white/90 backdrop-blur-sm px-6 py-4 rounded-2xl shadow-xl border border-gray-200 z-50">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 rounded-xl">
-                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs text-gray-600 font-medium">Tab Switches</p>
-                <p className="text-2xl font-bold text-gray-800">{tabSwitchCount}</p>
+              <div className="mt-2 flex items-center justify-center gap-1">
+                <div className="w-1 h-1 bg-green-500 rounded-full"></div>
+                <span className="text-xs text-gray-600 font-medium">Camera Active</span>
               </div>
             </div>
           </div>
 
-          {/* Enhanced Quiz Container */}
-          <div className="w-full max-w-6xl mx-auto mt-4 px-4">
-            <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-4">
-                <div className="flex items-center justify-between">
-                  <h1 className="text-xl font-bold text-white flex items-center gap-3">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Proctored Assessment
-                  </h1>
-                  <div className="flex items-center gap-2 text-white/80 text-sm">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    <span>Session Active</span>
-                  </div>
+          {/* Floating Tab Counter */}
+          <div className="fixed bottom-6 left-6 z-20">
+            <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 font-medium">Tab Switches</p>
+                  <p className="text-lg font-bold text-gray-900">{tabSwitchCount}</p>
                 </div>
               </div>
-              
-              <div className="p-2">
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="px-6 pb-6">
+            <div className="max-w-5xl mx-auto">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <iframe
                   src={`https://docs.google.com/forms/d/${quizId}/viewform?embedded=true`}
                   width="100%"
-                  height="800px"
+                  height="700"
                   frameBorder="0"
                   title="Google Form"
-                  className="w-full rounded-2xl"
+                  className="w-full"
                 >
-                  <div className="flex items-center justify-center h-96 bg-gray-50 rounded-2xl">
+                  <div className="flex items-center justify-center h-96 bg-gray-50">
                     <div className="text-center">
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                       <p className="text-gray-600">Loading assessment...</p>
@@ -217,7 +441,7 @@ export default function ProctorPage() {
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

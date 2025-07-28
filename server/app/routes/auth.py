@@ -1,6 +1,7 @@
 from flask import Blueprint, redirect, session, request, jsonify
 from google_auth_oauthlib.flow import Flow
 import os, pathlib
+import requests
 
 bp = Blueprint("auth", __name__)
 
@@ -51,6 +52,18 @@ def callback():
         "scopes": credentials.scopes
     }
 
+    # Fetch user info from Google and store in session
+    try:
+        user_info_response = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {credentials.token}"}
+        )
+        if user_info_response.status_code == 200:
+            user_info = user_info_response.json()
+            session["user_info"] = user_info
+    except Exception as e:
+        print(f"Error fetching user info: {e}")
+
     # ✅ redirect to frontend dashboard
     return redirect("http://localhost:5173")
 
@@ -64,4 +77,14 @@ def get_user():
     token = session.get("token")
     if not token:
         return jsonify({"user": None}), 200
-    return jsonify({"user": {"email": "authenticated_user"}}), 200
+    
+    user_info = session.get("user_info")
+    if user_info:
+        return jsonify({"user": {
+            "email": user_info.get("email"),
+            "name": user_info.get("name"),
+            "displayName": user_info.get("name"),
+            "picture": user_info.get("picture")
+        }}), 200
+    else:
+        return jsonify({"user": {"email": "authenticated_user"}}), 200
