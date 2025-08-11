@@ -6,8 +6,6 @@ from pymongo import MongoClient
 import os
 
 bp = Blueprint('form', __name__)
-client = MongoClient(os.getenv("mongodb+srv://manomohan714:12345@cluster0.jo91utj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"))
-db = client["quiz_proctoring"]
 
 @bp.route("/create-form", methods=["POST", "OPTIONS"])
 def create_form():
@@ -26,8 +24,6 @@ def create_form():
         "Authorization": f"Bearer {token['access_token']}",
         "Content-Type": "application/json"
     }
-
-    # Step 1: Create the form with just the title
     form_res = requests.post(
         "https://forms.googleapis.com/v1/forms",
         headers=headers,
@@ -45,7 +41,6 @@ def create_form():
     if not form_id:
         return jsonify({"error": "Form ID not returned"}), 400
 
-    # Step 2: Prepare batchUpdate request to add questions
     requests_payload = []
     index = 0
 
@@ -73,7 +68,6 @@ def create_form():
         requests_payload.append(item)
         index += 1
 
-    # Step 3: Call batchUpdate to add questions
     batch_res = requests.post(
         f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate",
         headers=headers,
@@ -84,27 +78,3 @@ def create_form():
         return jsonify({"error": "Failed to add questions", "details": batch_res.json()}), 400
 
     return jsonify({"formId": form_id})
-
-@bp.route('/submit-proctor-data', methods=['POST'])
-def submit_proctor_data():
-    data = request.json
-    email = data.get('email')
-    name = data.get('name')
-    student_class = data.get('class')
-    year = data.get('year')
-    tab_switches = data.get('tabSwitchCount')
-    quiz_id = data.get('quizId')
-
-    if not email or not quiz_id:
-        return jsonify({"error": "Missing data"}), 400
-
-    db.proctor_logs.insert_one({
-        "quiz_id": quiz_id,
-        "name": name,
-        "email": email,
-        "class": student_class,
-        "year": year,
-        "tab_switches": tab_switches,
-        "timestamp": datetime.utcnow()
-    })
-    return jsonify({"message": "Proctoring data saved successfully"}), 200
