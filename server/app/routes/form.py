@@ -91,7 +91,7 @@ def submit_proctor_data():
         if not data:
             return jsonify({"error": "No data provided"}), 400
         
-        email = data.get('email')
+        email = data.get('email')   
         name = data.get('name')
         student_class = data.get('class')
         year = data.get('year')
