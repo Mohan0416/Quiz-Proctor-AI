@@ -25,7 +25,7 @@ export function GenerateButton({ fileData, settings }) {
       if (settings.topic) formData.append("topic", settings.topic);
 
       // ✅ Generate quiz from backend
-      const generateRes = await fetch("http://localhost:5000/api/generate", {
+      const generateRes = await fetch("https://quiz-proctor-ai.onrender.com/api/generate", {
         method: "POST",
         body: formData,
         credentials: "include", // ensure session is included
@@ -45,7 +45,7 @@ export function GenerateButton({ fileData, settings }) {
       }
 
       // ✅ Create Google Form
-      const formRes = await fetch("http://localhost:5000/api/create-form", {
+      const formRes = await fetch("https://quiz-proctor-ai.onrender.com/api/create-form", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

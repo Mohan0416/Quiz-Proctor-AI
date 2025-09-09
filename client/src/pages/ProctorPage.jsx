@@ -151,7 +151,7 @@ export default function ProctorPage() {
   // End test (used for submit or camera missing)
   const handleEndTest = async () => {
     try {
-      await fetch('http://localhost:5000/api/submit-proctor-data', {
+      await fetch('https://quiz-proctor-ai.onrender.com/api/submit-proctor-data', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

@@ -10,7 +10,7 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = "http://localhost:5000/api/callback"
+REDIRECT_URI = "https://quiz-proctor-ai.onrender.com/callback"
 
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",

@@ -18,11 +18,11 @@ export default function Dashboard() {
       localStorage.clear();
       sessionStorage.clear();
       // Redirect to the backend login URL
-      window.location.href = "http://localhost:5000/api/login";
+      window.location.href = "https://quiz-proctor-ai.onrender.com/api/login";
     } catch (error) {
       console.error("Logout error:", error);
       // Even if logout fails, redirect to login
-      window.location.href = "http://localhost:5000/api/login";
+      window.location.href = "https://quiz-proctor-ai.onrender.com/api/login";
     }
   };
 
@@ -55,7 +55,7 @@ export default function Dashboard() {
 
           {/* Login Button */}
           <a
-            href="http://localhost:5000/api/login"
+            href="https://quiz-proctor-ai.onrender.com/api/login"
             className="group inline-flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-4 px-8 rounded-2xl transition-all duration-300 transform hover:scale-[1.05] hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-200"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
