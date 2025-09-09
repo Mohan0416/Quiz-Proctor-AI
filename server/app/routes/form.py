@@ -28,8 +28,6 @@ def create_form():
         "Authorization": f"Bearer {token['access_token']}",
         "Content-Type": "application/json"
     }
-
-    # Step 1: Create the form with just the title
     form_res = requests.post(
         "https://forms.googleapis.com/v1/forms",
         headers=headers,
@@ -46,7 +44,6 @@ def create_form():
     if not form_id:
         return jsonify({"error": "Form ID not returned"}), 400
 
-    # Step 2: Prepare batchUpdate request to add questions
     requests_payload = []
     index = 0
 
@@ -74,7 +71,6 @@ def create_form():
         requests_payload.append(item)
         index += 1
 
-    # Step 3: Call batchUpdate to add questions
     batch_res = requests.post(
         f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate",
         headers=headers,
