@@ -10,8 +10,37 @@ export default function ProctorPage() {
   const [mediaStream, setMediaStream] = useState(null);
   const [permissionError, setPermissionError] = useState('');
   const [cameraMissing, setCameraMissing] = useState(false);
-  const videoRef = useRef(null);
+  
+  // Create separate refs for each video element
+  const previewVideoRef = useRef(null);
+  const floatingVideoRef = useRef(null);
+  
   const navigate = useNavigate();
+
+  // Helper function to set stream for both video elements
+  const setVideoStream = useCallback((stream) => {
+    // Set original stream for preview video (in form)
+    if (previewVideoRef.current) {
+      previewVideoRef.current.srcObject = stream;
+      previewVideoRef.current.onloadedmetadata = () => {
+        previewVideoRef.current.play().catch(console.error);
+      };
+    }
+    
+    // Clone stream for floating video (during test)
+    if (floatingVideoRef.current) {
+      // Create a new stream with cloned tracks
+      const clonedStream = new MediaStream();
+      stream.getTracks().forEach(track => {
+        clonedStream.addTrack(track.clone());
+      });
+      
+      floatingVideoRef.current.srcObject = clonedStream;
+      floatingVideoRef.current.onloadedmetadata = () => {
+        floatingVideoRef.current.play().catch(console.error);
+      };
+    }
+  }, []);
 
   // Function to request camera/mic permissions (for Try Again button too)
   const requestMediaPermissions = useCallback(async () => {
@@ -31,14 +60,9 @@ export default function ProctorPage() {
       setPermissionError('');
       setCameraMissing(false);
       
-      // Wait a bit for video element to be ready
+      // Wait a bit for video elements to be ready
       setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current.play().catch(console.error);
-          };
-        }
+        setVideoStream(stream);
       }, 100);
       
     } catch (err) {
@@ -55,7 +79,7 @@ export default function ProctorPage() {
       setMediaPermissions({ camera: false, microphone: false });
       setMediaStream(null);
     }
-  }, []);
+  }, [setVideoStream]);
 
   // On mount, get permissions
   useEffect(() => {
@@ -68,15 +92,12 @@ export default function ProctorPage() {
     // eslint-disable-next-line
   }, []);
 
-  // Update video ref when stream changes
+  // Update video elements when stream changes
   useEffect(() => {
-    if (mediaStream && videoRef.current) {
-      videoRef.current.srcObject = mediaStream;
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current.play().catch(console.error);
-      };
+    if (mediaStream) {
+      setVideoStream(mediaStream);
     }
-  }, [mediaStream]);
+  }, [mediaStream, setVideoStream]);
 
   // Tab switch counting
   useEffect(() => {
@@ -106,14 +127,31 @@ export default function ProctorPage() {
       alert("Camera and microphone access are required to start the test. Please allow permissions and refresh the page.");
       return;
     }
+    
+    // Clear the preview video before switching
+    if (previewVideoRef.current) {
+      previewVideoRef.current.srcObject = null;
+    }
+    
     setShowPrompt(false);
+    
+    // Set stream to floating video after state change
+    setTimeout(() => {
+      if (mediaStream && floatingVideoRef.current) {
+        floatingVideoRef.current.srcObject = mediaStream;
+        floatingVideoRef.current.onloadedmetadata = () => {
+          floatingVideoRef.current.play().catch(console.error);
+        };
+      }
+    }, 100);
+    
     enterFullscreen();
   };
 
   // End test (used for submit or camera missing)
   const handleEndTest = async () => {
     try {
-      await fetch('http://localhost:5000/api/form/submit-proctor-data', {
+      await fetch('http://localhost:5000/api/submit-proctor-data', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -308,7 +346,7 @@ export default function ProctorPage() {
                       {mediaPermissions.camera && mediaStream ? (
                         <div className="relative">
                           <video 
-                            ref={videoRef} 
+                            ref={previewVideoRef}
                             autoPlay 
                             playsInline
                             muted 
@@ -386,7 +424,7 @@ export default function ProctorPage() {
             <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-3">
               <div className="relative">
                 <video 
-                  ref={videoRef} 
+                  ref={floatingVideoRef}
                   autoPlay 
                   playsInline
                   muted 

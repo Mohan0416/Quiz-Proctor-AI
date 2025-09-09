@@ -24,9 +24,11 @@ export function GenerateButton({ fileData, settings }) {
       formData.append("difficulty", settings.difficulty);
       if (settings.topic) formData.append("topic", settings.topic);
 
+      // ✅ Generate quiz from backend
       const generateRes = await fetch("http://localhost:5000/api/generate", {
         method: "POST",
         body: formData,
+        credentials: "include", // ensure session is included
       });
 
       if (!generateRes.ok) throw new Error(`Quiz generation failed: ${generateRes.status}`);
@@ -42,6 +44,7 @@ export function GenerateButton({ fileData, settings }) {
         throw new Error("Invalid quiz format: no JSON array found.");
       }
 
+      // ✅ Create Google Form
       const formRes = await fetch("http://localhost:5000/api/create-form", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -60,7 +63,7 @@ export function GenerateButton({ fileData, settings }) {
       }
 
       Toast.success("✅ Google Form created!");
-      navigate(`/test/${formdata.formId}`); // 👈 Redirect to proctoring page with formId
+      navigate(`/test/${formdata.formId}`); // redirect to proctoring page with formId
     } catch (err) {
       console.error("API Error:", err);
       Toast.error("Something went wrong while generating the quiz.");
@@ -88,12 +91,10 @@ export function GenerateButton({ fileData, settings }) {
           }
         `}
       >
-        {/* Animated background gradient */}
         {!isDisabled && !isGenerating && (
           <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
         )}
         
-        {/* Button content */}
         <div className="relative flex items-center space-x-3">
           {isGenerating ? (
             <>
@@ -113,7 +114,6 @@ export function GenerateButton({ fileData, settings }) {
           )}
         </div>
 
-        {/* Shine effect */}
         {!isDisabled && !isGenerating && (
           <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500">
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 translate-x-full group-hover:-translate-x-full transition-transform duration-1000"></div>
@@ -121,14 +121,12 @@ export function GenerateButton({ fileData, settings }) {
         )}
       </button>
 
-      {/* Progress indicator */}
       {isGenerating && (
         <div className="w-72 bg-gray-200 rounded-full h-2 overflow-hidden">
           <div className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full animate-pulse"></div>
         </div>
       )}
 
-      {/* Status text */}
       <div className="text-center">
         {isGenerating ? (
           <p className="text-sm text-gray-600 animate-pulse">
